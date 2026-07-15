@@ -42,16 +42,16 @@ const router = createHashRouter([
 ])
 
 const swhColor: MantineColorsTuple = [
-  '#ffebee',
-  '#fbd7db',
-  '#eeaeb5',
-  '#e1838c',
-  '#d75e6a',
-  '#d04351',
-  '#cf3949',
-  '#b72b3a',
-  '#a42333',
-  '#91182a',
+  '#f5f5f5',
+  '#e7e7e7',
+  '#cdcdcd',
+  '#b2b2b2',
+  '#9a9a9a',
+  '#7f7f7f',
+  '#666666',
+  '#4d4d4d',
+  '#333333',
+  '#171717',
 ]
 
 const theme = createTheme({
@@ -66,6 +66,7 @@ const theme = createTheme({
     xl: '1.09375rem',
   },
   primaryColor: 'swhColor',
+  primaryShade: { light: 9, dark: 6 },
   components: {
     Tooltip: Tooltip.extend({
       defaultProps: {

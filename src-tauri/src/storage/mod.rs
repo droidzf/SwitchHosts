@@ -39,6 +39,10 @@ pub struct AppState {
     pub paths: V5Paths,
     pub config: Mutex<AppConfig>,
     pub store_lock: Mutex<()>,
+    /// Serializes resolver store reconciliation and privileged mutations.
+    /// Kept separate from `store_lock` because an OS authorization prompt
+    /// must never block hosts manifest/trashcan operations.
+    pub resolver_lock: Mutex<()>,
     /// Serializes the entire `config_set` / `config_update` commit
     /// pipeline. Tauri runs `#[tauri::command] async fn`s concurrently
     /// on tokio, so without this guard two concurrent commits can each
@@ -139,6 +143,7 @@ impl AppState {
             paths,
             config: Mutex::new(config),
             store_lock: Mutex::new(()),
+            resolver_lock: Mutex::new(()),
             config_write_lock: Mutex::new(()),
             update_check_lock: tokio::sync::Mutex::new(()),
             is_will_quit: AtomicBool::new(false),
@@ -191,6 +196,7 @@ mod tests {
             paths: V5Paths::under(root),
             config: Mutex::new(AppConfig::default()),
             store_lock: Mutex::new(()),
+            resolver_lock: Mutex::new(()),
             config_write_lock: Mutex::new(()),
             update_check_lock: tokio::sync::Mutex::new(()),
             is_will_quit: AtomicBool::new(false),
@@ -203,11 +209,11 @@ mod tests {
     fn require_data_dir_usable_rejects_during_recovery() {
         // Both recovery kinds (missing dir and invalid pointer) must block
         // data-mutating commands; the normal (None) case allows them.
-        assert!(
-            state(Some(paths::DataDirRecovery::Missing(PathBuf::from("/tmp/gone"))))
-                .require_data_dir_usable()
-                .is_err()
-        );
+        assert!(state(Some(paths::DataDirRecovery::Missing(PathBuf::from(
+            "/tmp/gone"
+        ))))
+        .require_data_dir_usable()
+        .is_err());
         assert!(state(Some(paths::DataDirRecovery::Invalid))
             .require_data_dir_usable()
             .is_err());

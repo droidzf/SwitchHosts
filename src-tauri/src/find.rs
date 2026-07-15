@@ -815,6 +815,7 @@ mod tests {
             paths,
             config: Mutex::new(AppConfig::default()),
             store_lock: Mutex::new(()),
+            resolver_lock: Mutex::new(()),
             config_write_lock: Mutex::new(()),
             update_check_lock: tokio::sync::Mutex::new(()),
             is_will_quit: AtomicBool::new(false),

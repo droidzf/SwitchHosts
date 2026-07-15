@@ -79,3 +79,8 @@ export interface ICommandRunResult {
   stderr: string
   add_time_ms: number
 }
+
+export interface IResolverEntry {
+  name: string
+  enabled: boolean
+}

@@ -15,9 +15,10 @@ use block2::RcBlock;
 
 use super::xpc::*;
 use super::{
-    app_designated_requirement, write_system_hosts, KEY_CONTENT, KEY_MESSAGE, KEY_OP,
-    KEY_PROTOCOL_VERSION, KEY_STATUS, LABEL, OP_PING, OP_VERSION, OP_WRITE, PROTOCOL_VERSION,
-    STATUS_ERR, STATUS_OK,
+    app_designated_requirement, delete_resolver, rename_resolver, write_resolver,
+    write_system_hosts, KEY_CONTENT, KEY_MESSAGE, KEY_NAME, KEY_NEW_NAME, KEY_OP,
+    KEY_PROTOCOL_VERSION, KEY_STATUS, LABEL, OP_DELETE_RESOLVER, OP_PING, OP_RENAME_RESOLVER,
+    OP_VERSION, OP_WRITE, OP_WRITE_RESOLVER, PROTOCOL_VERSION, STATUS_ERR, STATUS_OK,
 };
 
 /// Bring up the listener and park forever servicing it. Never returns.
@@ -133,14 +134,96 @@ unsafe fn handle_request(event: XpcObject) {
                 }
             }
         }
+    } else if op == OP_WRITE_RESOLVER {
+        let Some(name) = request_string(event, KEY_NAME) else {
+            reply_error(reply, "missing or invalid resolver name");
+            send_reply(remote, reply);
+            return;
+        };
+        let mut len: usize = 0;
+        let data = xpc_dictionary_get_data(event, KEY_CONTENT.as_ptr(), &mut len);
+        if data.is_null() {
+            reply_error(reply, "missing content");
+        } else {
+            let bytes = std::slice::from_raw_parts(data as *const u8, len);
+            match write_resolver(&name, bytes) {
+                Ok(()) => {
+                    daemon_log(
+                        libc::LOG_NOTICE,
+                        &format!("[swh_helper] wrote {len} bytes to /etc/resolver/{name}"),
+                    );
+                    xpc_dictionary_set_int64(reply, KEY_STATUS.as_ptr(), STATUS_OK);
+                }
+                Err(e) => reply_operation_error(reply, "resolver write", &e),
+            }
+        }
+    } else if op == OP_DELETE_RESOLVER {
+        let Some(name) = request_string(event, KEY_NAME) else {
+            reply_error(reply, "missing or invalid resolver name");
+            send_reply(remote, reply);
+            return;
+        };
+        match delete_resolver(&name) {
+            Ok(()) => {
+                daemon_log(
+                    libc::LOG_NOTICE,
+                    &format!("[swh_helper] deleted /etc/resolver/{name}"),
+                );
+                xpc_dictionary_set_int64(reply, KEY_STATUS.as_ptr(), STATUS_OK);
+            }
+            Err(e) => reply_operation_error(reply, "resolver delete", &e),
+        }
+    } else if op == OP_RENAME_RESOLVER {
+        let Some(old_name) = request_string(event, KEY_NAME) else {
+            reply_error(reply, "missing or invalid resolver name");
+            send_reply(remote, reply);
+            return;
+        };
+        let Some(new_name) = request_string(event, KEY_NEW_NAME) else {
+            reply_error(reply, "missing or invalid new resolver name");
+            send_reply(remote, reply);
+            return;
+        };
+        match rename_resolver(&old_name, &new_name) {
+            Ok(()) => {
+                daemon_log(
+                    libc::LOG_NOTICE,
+                    &format!(
+                        "[swh_helper] renamed /etc/resolver/{old_name} to /etc/resolver/{new_name}"
+                    ),
+                );
+                xpc_dictionary_set_int64(reply, KEY_STATUS.as_ptr(), STATUS_OK);
+            }
+            Err(e) => reply_operation_error(reply, "resolver rename", &e),
+        }
     } else {
         reply_error(reply, "unknown op");
     }
 
+    send_reply(remote, reply);
+}
+
+unsafe fn request_string(event: XpcObject, key: &CStr) -> Option<String> {
+    let ptr = xpc_dictionary_get_string(event, key.as_ptr());
+    if ptr.is_null() {
+        return None;
+    }
+    CStr::from_ptr(ptr).to_str().ok().map(str::to_owned)
+}
+
+unsafe fn send_reply(remote: XpcConnection, reply: XpcObject) {
     if !remote.is_null() {
         xpc_connection_send_message(remote, reply);
     }
     xpc_release(reply);
+}
+
+unsafe fn reply_operation_error(reply: XpcObject, operation: &str, error: &std::io::Error) {
+    daemon_log(
+        libc::LOG_ERR,
+        &format!("[swh_helper] {operation} failed: {error}"),
+    );
+    reply_error(reply, &error.to_string());
 }
 
 /// Stamp an error status + message onto `reply`.

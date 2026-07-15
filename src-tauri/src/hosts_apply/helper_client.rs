@@ -38,6 +38,42 @@ pub fn write_hosts(content: &[u8]) -> Result<(), String> {
     }
 }
 
+pub fn write_resolver(name: &str, content: &[u8]) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        imp::write_resolver(name, content)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (name, content);
+        Err("privileged helper is not supported on this platform".into())
+    }
+}
+
+pub fn delete_resolver(name: &str) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        imp::delete_resolver(name)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = name;
+        Err("privileged helper is not supported on this platform".into())
+    }
+}
+
+pub fn rename_resolver(old_name: &str, new_name: &str) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        imp::rename_resolver(old_name, new_name)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (old_name, new_name);
+        Err("privileged helper is not supported on this platform".into())
+    }
+}
+
 /// Ping the daemon for its protocol version. `None` if unreachable or it
 /// doesn't reply within the timeout. This read-only probe IS bounded by
 /// a timeout (no side effect, so a late/abandoned reply is harmless) and
@@ -210,6 +246,65 @@ mod imp {
             r
         })
         .unwrap_or_else(|| Err("could not connect to the privileged helper".into()))
+    }
+
+    fn send_resolver_request(
+        op: &CStr,
+        name: &str,
+        new_name: Option<&str>,
+        content: Option<&[u8]>,
+    ) -> Result<(), String> {
+        let name = CString::new(name).map_err(|_| "resolver name contains NUL".to_string())?;
+        let new_name = new_name
+            .map(CString::new)
+            .transpose()
+            .map_err(|_| "new resolver name contains NUL".to_string())?;
+
+        with_connection(|conn| unsafe {
+            let msg = xpc_dictionary_create(std::ptr::null(), std::ptr::null(), 0);
+            xpc_dictionary_set_string(msg, helper_proto::KEY_OP.as_ptr(), op.as_ptr());
+            xpc_dictionary_set_string(msg, helper_proto::KEY_NAME.as_ptr(), name.as_ptr());
+            if let Some(new_name) = &new_name {
+                xpc_dictionary_set_string(
+                    msg,
+                    helper_proto::KEY_NEW_NAME.as_ptr(),
+                    new_name.as_ptr(),
+                );
+            }
+            if let Some(content) = content {
+                xpc_dictionary_set_data(
+                    msg,
+                    helper_proto::KEY_CONTENT.as_ptr(),
+                    content.as_ptr() as *const c_void,
+                    content.len(),
+                );
+            }
+            let reply = xpc_connection_send_message_with_reply_sync(conn, msg);
+            xpc_release(msg);
+            let result = interpret_status(reply);
+            if !reply.is_null() {
+                xpc_release(reply);
+            }
+            result
+        })
+        .unwrap_or_else(|| Err("could not connect to the privileged helper".into()))
+    }
+
+    pub fn write_resolver(name: &str, content: &[u8]) -> Result<(), String> {
+        send_resolver_request(helper_proto::OP_WRITE_RESOLVER, name, None, Some(content))
+    }
+
+    pub fn delete_resolver(name: &str) -> Result<(), String> {
+        send_resolver_request(helper_proto::OP_DELETE_RESOLVER, name, None, None)
+    }
+
+    pub fn rename_resolver(old_name: &str, new_name: &str) -> Result<(), String> {
+        send_resolver_request(
+            helper_proto::OP_RENAME_RESOLVER,
+            old_name,
+            Some(new_name),
+            None,
+        )
     }
 
     pub fn probe_version() -> Option<u64> {

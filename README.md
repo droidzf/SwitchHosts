@@ -36,7 +36,19 @@ SwitchHosts is an App for managing hosts file, it is based on [Tauri](https://ta
 - Refresh remote hosts manually, on a schedule, or at startup
 - Import/export hosts data, including importing backups from a URL
 - Move entries to the trashcan and restore or delete them later
+- Manage macOS split-DNS resolver files with persistent on/off switches
 - Preferences for write mode, proxy, update checks, launch at login, post-apply commands, and the local HTTP API
+
+## macOS Domain Resolution
+
+On macOS, the **Domain Resolution** menu manages files under `/etc/resolver`:
+
+- Each list item maps to `/etc/resolver/<name>` and can be added, renamed, edited, or deleted.
+- Turning an item off removes its file from `/etc/resolver`, but keeps its name and content in SwitchHosts. Turning it on restores the file from the saved content.
+- Resolver records are stored in `~/.SwitchHosts/internal/resolvers.json` (or the selected SwitchHosts data directory).
+- Existing files created outside SwitchHosts are imported automatically when the list loads.
+- Creating a resolver opens a commented template covering every directive documented by macOS `resolver(5)`: `nameserver`, `port`, `domain`, `search`, `search_order`, `sortlist`, `timeout`, and `options` (`debug`, `timeout:n`, and `ndots:n`).
+- System changes require macOS administrator authorization. Resolver management is not available on Windows or Linux.
 
 ## Install
 
@@ -62,9 +74,10 @@ path on Windows). In the v5 data layout:
 - `~/.SwitchHosts/entries/` stores local and remote hosts content
 - `~/.SwitchHosts/trashcan.json` stores trashcan entries
 - `~/.SwitchHosts/internal/config.json` stores preferences
+- `~/.SwitchHosts/internal/resolvers.json` stores macOS resolver records and their enabled state
 - `~/.SwitchHosts/internal/histories/` stores system hosts and command run history
 
-For a complete manual backup, copy the whole `~/.SwitchHosts` folder. The in-app export creates a hosts data backup JSON; it does not include preferences or histories.
+For a complete manual backup, copy the whole `~/.SwitchHosts` folder. The in-app export creates a hosts data backup JSON; it does not include preferences, histories, or resolver records.
 
 ## Develop and build
 

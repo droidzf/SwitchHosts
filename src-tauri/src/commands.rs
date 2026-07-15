@@ -28,6 +28,7 @@ use crate::http_api;
 use crate::import_export;
 use crate::lifecycle::{self, MAIN_WINDOW_LABEL};
 use crate::refresh::{self, RefreshOutcome};
+use crate::resolver;
 use crate::storage::{
     data_dir_pointer, entries, fs_copy,
     manifest::{self, Manifest},
@@ -634,6 +635,138 @@ fn system_hosts_path() -> Result<PathBuf, StorageError> {
     hosts_apply::write::system_hosts_path().map_err(|e| StorageError::Io {
         path: "system hosts path".to_string(),
         reason: e.to_string(),
+    })
+}
+
+// ---- macOS split DNS (/etc/resolver) --------------------------------------
+
+#[tauri::command]
+pub async fn get_resolvers(state: State<'_, AppState>, _args: Args) -> Result<Value, String> {
+    state.require_data_dir_usable().map_err(|e| e.to_string())?;
+    let _guard = state.resolver_lock.lock().expect("resolver lock poisoned");
+    resolver::list(&state.paths.resolvers_file)
+        .map(|items| json!(items))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_resolver_content(state: State<'_, AppState>, args: Args) -> Result<Value, String> {
+    state.require_data_dir_usable().map_err(|e| e.to_string())?;
+    let name = args
+        .first()
+        .and_then(Value::as_str)
+        .ok_or_else(|| "get_resolver_content: args[0] must be a string".to_string())?;
+    let _guard = state.resolver_lock.lock().expect("resolver lock poisoned");
+    resolver::read(&state.paths.resolvers_file, name)
+        .map(Value::String)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn save_resolver(state: State<'_, AppState>, args: Args) -> Result<Value, String> {
+    if let Err(e) = state.require_data_dir_usable() {
+        return Ok(json!({ "success": false, "code": "fail", "message": e.to_string() }));
+    }
+    let Some(name) = args.first().and_then(Value::as_str) else {
+        return Ok(json!({
+            "success": false,
+            "code": "fail",
+            "message": "save_resolver: args[0] must be a string",
+        }));
+    };
+    let Some(content) = args.get(1).and_then(Value::as_str) else {
+        return Ok(json!({
+            "success": false,
+            "code": "fail",
+            "message": "save_resolver: args[1] must be a string",
+        }));
+    };
+
+    let _guard = state.resolver_lock.lock().expect("resolver lock poisoned");
+    Ok(
+        match resolver::save(&state.paths.resolvers_file, name, content) {
+            Ok(()) => json!({ "success": true }),
+            Err(e) => e.into_renderer_value(),
+        },
+    )
+}
+
+#[tauri::command]
+pub async fn toggle_resolver(state: State<'_, AppState>, args: Args) -> Result<Value, String> {
+    if let Err(e) = state.require_data_dir_usable() {
+        return Ok(json!({ "success": false, "code": "fail", "message": e.to_string() }));
+    }
+    let Some(name) = args.first().and_then(Value::as_str) else {
+        return Ok(json!({
+            "success": false,
+            "code": "fail",
+            "message": "toggle_resolver: args[0] must be a string",
+        }));
+    };
+    let Some(enabled) = args.get(1).and_then(Value::as_bool) else {
+        return Ok(json!({
+            "success": false,
+            "code": "fail",
+            "message": "toggle_resolver: args[1] must be a boolean",
+        }));
+    };
+    let content_override = args.get(2).and_then(Value::as_str);
+
+    let _guard = state.resolver_lock.lock().expect("resolver lock poisoned");
+    Ok(
+        match resolver::toggle(&state.paths.resolvers_file, name, enabled, content_override) {
+            Ok(()) => json!({ "success": true }),
+            Err(e) => e.into_renderer_value(),
+        },
+    )
+}
+
+#[tauri::command]
+pub async fn rename_resolver(state: State<'_, AppState>, args: Args) -> Result<Value, String> {
+    if let Err(e) = state.require_data_dir_usable() {
+        return Ok(json!({ "success": false, "code": "fail", "message": e.to_string() }));
+    }
+    let Some(old_name) = args.first().and_then(Value::as_str) else {
+        return Ok(json!({
+            "success": false,
+            "code": "fail",
+            "message": "rename_resolver: args[0] must be a string",
+        }));
+    };
+    let Some(new_name) = args.get(1).and_then(Value::as_str) else {
+        return Ok(json!({
+            "success": false,
+            "code": "fail",
+            "message": "rename_resolver: args[1] must be a string",
+        }));
+    };
+
+    let _guard = state.resolver_lock.lock().expect("resolver lock poisoned");
+    Ok(
+        match resolver::rename(&state.paths.resolvers_file, old_name, new_name) {
+            Ok(()) => json!({ "success": true }),
+            Err(e) => e.into_renderer_value(),
+        },
+    )
+}
+
+#[tauri::command]
+pub async fn delete_resolver(state: State<'_, AppState>, args: Args) -> Result<Value, String> {
+    if let Err(e) = state.require_data_dir_usable() {
+        return Ok(json!({ "success": false, "code": "fail", "message": e.to_string() }));
+    }
+    let Some(name) = args.first().and_then(Value::as_str) else {
+        return Ok(json!({
+            "success": false,
+            "code": "fail",
+            "message": "delete_resolver: args[0] must be a string",
+        }));
+    };
+
+    let _guard = state.resolver_lock.lock().expect("resolver lock poisoned");
+    Ok(match resolver::delete(&state.paths.resolvers_file, name) {
+        Ok(()) => json!({ "success": true }),
+        Err(e) => e.into_renderer_value(),
     })
 }
 
@@ -1758,10 +1891,7 @@ pub async fn apply_data_dir<R: Runtime>(
     // root is a degraded fallback, so even a missing pointer must still
     // restart to leave recovery — never short-circuit there, or the dialog's
     // button spins forever on a no-op that never restarts.
-    if is_default
-        && !data_dir_pointer::pointer_exists()
-        && state.data_dir_recovery.is_none()
-    {
+    if is_default && !data_dir_pointer::pointer_exists() && state.data_dir_recovery.is_none() {
         return Ok(json!({ "changed": false }));
     }
 

@@ -149,6 +149,17 @@
     },
     systemHosts: '127.0.0.1 localhost\n255.255.255.255 broadcasthost\n',
     systemPath: '/etc/hosts',
+    resolvers: {
+      'corp.example': {
+        content: 'nameserver 192.0.2.53\nnameserver 198.51.100.53\n',
+        enabled: true,
+      },
+      'dev.example': { content: 'nameserver 192.0.2.53\n', enabled: true },
+    },
+    systemResolvers: {
+      'corp.example': 'nameserver 192.0.2.53\nnameserver 198.51.100.53\n',
+      'dev.example': 'nameserver 192.0.2.53\n',
+    },
     dataDir: '/Users/e2e/.SwitchHosts',
     history: [
       {
@@ -398,8 +409,51 @@
           return state.systemHosts
         case 'get_path_of_system_hosts':
           return state.systemPath
+        case 'get_resolvers':
+          return Object.keys(state.resolvers)
+            .sort((a, b) => a.localeCompare(b))
+            .map((name) => ({ name, enabled: state.resolvers[name].enabled }))
+        case 'get_resolver_content':
+          if (!Object.prototype.hasOwnProperty.call(state.resolvers, params[0])) {
+            throw new Error(`Resolver not found: ${params[0]}`)
+          }
+          return state.resolvers[params[0]].content
+        case 'save_resolver': {
+          const name = params[0]
+          const content = params[1] || ''
+          const current = state.resolvers[name]
+          state.resolvers[name] = { content, enabled: current?.enabled ?? true }
+          if (state.resolvers[name].enabled) state.systemResolvers[name] = content
+          return { success: true }
+        }
+        case 'toggle_resolver': {
+          const name = params[0]
+          const enabled = params[1]
+          const content = typeof params[2] === 'string' ? params[2] : state.resolvers[name].content
+          state.resolvers[name] = { content, enabled }
+          if (enabled) state.systemResolvers[name] = content
+          else delete state.systemResolvers[name]
+          return { success: true }
+        }
+        case 'rename_resolver':
+          if (Object.prototype.hasOwnProperty.call(state.resolvers, params[1])) {
+            return { success: false, code: 'fail', message: 'Resolver already exists' }
+          }
+          state.resolvers[params[1]] = state.resolvers[params[0]] || { content: '', enabled: false }
+          if (Object.prototype.hasOwnProperty.call(state.systemResolvers, params[0])) {
+            state.systemResolvers[params[1]] = state.systemResolvers[params[0]]
+            delete state.systemResolvers[params[0]]
+          }
+          delete state.resolvers[params[0]]
+          return { success: true }
+        case 'delete_resolver':
+          delete state.resolvers[params[0]]
+          delete state.systemResolvers[params[0]]
+          return { success: true }
         case 'get_data_dir':
           return state.dataDir
+        case 'get_data_dir_status':
+          return { default_dir: state.dataDir, recovery: null }
         case 'get_hosts_content':
           return state.contents[params[0]] || ''
         case 'set_hosts_content':

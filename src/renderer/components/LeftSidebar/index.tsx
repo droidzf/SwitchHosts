@@ -5,7 +5,7 @@ import { actions, agent } from '@renderer/core/agent'
 import useHostsData from '@renderer/models/useHostsData'
 import useI18n from '@renderer/models/useI18n'
 import { leftPanelViewAtom } from '@renderer/stores/ui'
-import { IconHistory, IconList, IconSearch, IconTrash } from '@tabler/icons-react'
+import { IconHistory, IconList, IconSearch, IconTrash, IconWorldWww } from '@tabler/icons-react'
 import { useAtom } from 'jotai'
 import styles from './index.module.scss'
 
@@ -13,7 +13,7 @@ interface IProps {
   showLeftPanel: boolean
 }
 
-type LeftPanelView = 'list' | 'trashcan'
+type LeftPanelView = 'list' | 'trashcan' | 'resolver'
 
 const LeftSidebar = (props: IProps) => {
   const { showLeftPanel } = props
@@ -22,6 +22,9 @@ const LeftSidebar = (props: IProps) => {
   const [view, setView] = useAtom(leftPanelViewAtom)
 
   const handleClick = (target: LeftPanelView) => {
+    if (target === 'resolver') {
+      agent.broadcast(events.toggle_right_panel, false)
+    }
     if (!showLeftPanel) {
       setView(target)
       agent.broadcast(events.toggle_left_panel, true)
@@ -45,6 +48,17 @@ const LeftSidebar = (props: IProps) => {
             aria-label={'Hosts'}
           >
             <IconList size={18} stroke={1.5} />
+          </ActionIcon>
+        </Tooltip>
+        <Tooltip label={lang.domain_resolution} position="right">
+          <ActionIcon
+            variant={view === 'resolver' ? 'light' : 'subtle'}
+            color={view === 'resolver' ? undefined : 'gray'}
+            size={28}
+            onClick={() => handleClick('resolver')}
+            aria-label={lang.domain_resolution}
+          >
+            <IconWorldWww size={18} stroke={1.5} />
           </ActionIcon>
         </Tooltip>
         <Tooltip label={lang.trashcan} position="right">

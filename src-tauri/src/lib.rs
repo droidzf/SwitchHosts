@@ -13,6 +13,7 @@ mod import_export;
 mod lifecycle;
 mod migration;
 mod refresh;
+mod resolver;
 mod storage;
 mod tray;
 mod window_theme;
@@ -500,6 +501,13 @@ pub fn run() {
             commands::set_hosts_content,
             commands::get_system_hosts,
             commands::get_path_of_system_hosts,
+            // macOS split DNS (/etc/resolver)
+            commands::get_resolvers,
+            commands::get_resolver_content,
+            commands::save_resolver,
+            commands::toggle_resolver,
+            commands::rename_resolver,
+            commands::delete_resolver,
             // apply / refresh
             commands::apply_hosts_selection,
             // privileged helper (macOS SMAppService)

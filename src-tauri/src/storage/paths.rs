@@ -25,6 +25,7 @@ pub struct V5Paths {
     pub entries_dir: PathBuf,
     pub internal: PathBuf,
     pub config_file: PathBuf,
+    pub resolvers_file: PathBuf,
     /// Placeholder for a later sub-step (`internal/state.json`).
     #[allow(dead_code)]
     pub state_file: PathBuf,
@@ -40,6 +41,7 @@ impl V5Paths {
         let entries_dir = root.join("entries");
         let internal = root.join("internal");
         let config_file = internal.join("config.json");
+        let resolvers_file = internal.join("resolvers.json");
         let state_file = internal.join("state.json");
         let histories_dir = internal.join("histories");
         Self {
@@ -49,6 +51,7 @@ impl V5Paths {
             entries_dir,
             internal,
             config_file,
+            resolvers_file,
             state_file,
             histories_dir,
         }

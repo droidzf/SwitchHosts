@@ -111,7 +111,8 @@ const hostsTheme = EditorView.theme({
 export interface BuildExtensionsOptions {
   initialReadOnly: boolean
   onDocChange: (next: string) => void
-  onGutterClick: (lineIndex: number) => void
+  onGutterClick?: (lineIndex: number) => void
+  mode?: 'hosts' | 'plain'
 }
 
 export interface BuiltExtensions {
@@ -123,24 +124,29 @@ export function buildExtensions({
   initialReadOnly,
   onDocChange,
   onGutterClick,
+  mode = 'hosts',
 }: BuildExtensionsOptions): BuiltExtensions {
   const readOnlyCompartment = new Compartment()
 
   const extensions: Extension[] = [
     history(),
-    lineNumbers({
-      domEventHandlers: {
-        mousedown(view, line, event) {
-          // CM 6 Line.number is 1-based; our toggleCommentByLine wants 0-based.
-          const lineIdx = view.state.doc.lineAt(line.from).number - 1
-          onGutterClick(lineIdx)
-          ;(event as MouseEvent).preventDefault()
-          return true
-        },
-      },
-    }),
+    lineNumbers(
+      mode === 'hosts' && onGutterClick
+        ? {
+            domEventHandlers: {
+              mousedown(view, line, event) {
+                // CM 6 Line.number is 1-based; our toggleCommentByLine wants 0-based.
+                const lineIdx = view.state.doc.lineAt(line.from).number - 1
+                onGutterClick(lineIdx)
+                ;(event as MouseEvent).preventDefault()
+                return true
+              },
+            },
+          }
+        : {},
+    ),
     keymap.of([...defaultKeymap, ...historyKeymap]),
-    hostsHighlighter,
+    ...(mode === 'hosts' ? [hostsHighlighter] : []),
     hostsTheme,
     EditorView.updateListener.of((u) => {
       if (u.docChanged) onDocChange(u.state.doc.toString())

@@ -35,7 +35,19 @@ SwitchHosts 是一个管理 hosts 文件的应用，基于 [Tauri](https://tauri
 - 支持手动、定时或启动时刷新远程 hosts
 - 导入/导出 hosts 数据，并支持从 URL 导入备份
 - 将条目移入回收站，并可稍后恢复或彻底删除
+- 管理 macOS 分流 DNS Resolver，并支持持久化开关状态
 - 偏好设置支持写入模式、代理、更新检查、开机启动、应用后命令和本地 HTTP API
+
+## macOS 域名解析
+
+在 macOS 上，左侧的“域名解析”菜单用于管理 `/etc/resolver`：
+
+- 列表中的每一项对应 `/etc/resolver/<名称>`，支持新增、重命名、编辑和删除。
+- 关闭开关时会删除对应的系统文件，但名称和内容仍保存在 SwitchHosts 中；重新开启时会使用保存内容恢复系统文件。
+- Resolver 记录保存在 `~/.SwitchHosts/internal/resolvers.json`（或用户选择的 SwitchHosts 数据目录）中。
+- 在应用外创建的 `/etc/resolver` 文件会在加载列表时自动导入。
+- 新建 Resolver 时会生成带字段说明的完整注释模板，覆盖 macOS `resolver(5)` 支持的全部字段：`nameserver`、`port`、`domain`、`search`、`search_order`、`sortlist`、`timeout` 和 `options`（`debug`、`timeout:n`、`ndots:n`）。
+- 修改系统 Resolver 需要 macOS 管理员授权；Windows 和 Linux 不支持此功能。
 
 ## 安装
 
@@ -59,9 +71,10 @@ v5 数据结构如下：
 - `~/.SwitchHosts/entries/` 存储本地和远程 hosts 内容
 - `~/.SwitchHosts/trashcan.json` 存储回收站条目
 - `~/.SwitchHosts/internal/config.json` 存储偏好设置
+- `~/.SwitchHosts/internal/resolvers.json` 存储 macOS Resolver 记录及其启用状态
 - `~/.SwitchHosts/internal/histories/` 存储系统 hosts 和命令运行历史
 
-如需完整手动备份，请复制整个 `~/.SwitchHosts` 文件夹。应用内导出会生成 hosts 数据备份 JSON，不包含偏好设置或历史记录。
+如需完整手动备份，请复制整个 `~/.SwitchHosts` 文件夹。应用内导出会生成 hosts 数据备份 JSON，不包含偏好设置、历史记录或 Resolver 配置。
 
 ## 开发以及构建
 

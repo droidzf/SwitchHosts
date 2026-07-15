@@ -38,6 +38,8 @@ interface MockState {
   }
   contents: Record<string, string>
   systemHosts: string
+  resolvers: Record<string, { content: string; enabled: boolean }>
+  systemResolvers: Record<string, string>
   history: Array<{ id: string; content: string }>
 }
 

@@ -12,6 +12,8 @@ import { actions, agent } from '@renderer/core/agent'
 import useOnBroadcast from '@renderer/core/useOnBroadcast'
 import useHostsData from '@renderer/models/useHostsData'
 import useI18n from '@renderer/models/useI18n'
+import { currentResolverNameAtom } from '@renderer/stores/resolvers'
+import { leftPanelViewAtom } from '@renderer/stores/ui'
 import {
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
@@ -21,10 +23,12 @@ import {
   IconPlus,
   IconSquare,
   IconX,
+  IconWorldWww,
 } from '@tabler/icons-react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import clsx from 'clsx'
 import { useEffect, useState } from 'react'
+import { useAtomValue } from 'jotai'
 import styles from './index.module.scss'
 
 interface IProps {
@@ -37,15 +41,22 @@ const TopBar = (props: IProps) => {
   const { showLeftPanel, showRightPanel } = props
   const { lang } = useI18n()
   const { isHostsInTrashcan, currentHosts, isReadOnly } = useHostsData()
+  const view = useAtomValue(leftPanelViewAtom)
+  const currentResolverName = useAtomValue(currentResolverNameAtom)
+  const resolverMode = view === 'resolver'
   const [isOn, setIsOn] = useState(!!currentHosts?.on)
   const iconSize = 20
   const iconStroke = 1.5
 
   const showToggleSwitch =
-    !showLeftPanel && currentHosts && !isHostsInTrashcan(currentHosts.id)
+    !resolverMode && !showLeftPanel && currentHosts && !isHostsInTrashcan(currentHosts.id)
   const showAppBrand = agent.platform !== 'darwin'
   const showWindowControls = agent.platform !== 'darwin'
-  const currentTitle = currentHosts ? currentHosts.title || lang.untitled : lang.system_hosts
+  const currentTitle = resolverMode
+    ? currentResolverName || lang.domain_resolution
+    : currentHosts
+      ? currentHosts.title || lang.untitled
+      : lang.system_hosts
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- mirror prop into local optimistic state; also set by useOnBroadcast
@@ -104,7 +115,9 @@ const TopBar = (props: IProps) => {
           </ActionIcon>
           <ActionIcon
             aria-label="Add"
-            onClick={() => agent.broadcast(events.add_new)}
+            onClick={() =>
+              agent.broadcast(resolverMode ? events.resolver_add : events.add_new)
+            }
             variant="subtle"
             color="gray"
           >
@@ -119,7 +132,20 @@ const TopBar = (props: IProps) => {
         data-tauri-drag-region
       >
         <Flex className={styles.title} gap={8} align="center" justify="center">
-          {currentHosts ? (
+          {resolverMode ? (
+            <>
+              <span className={styles.hosts_icon} data-testid="titlebar-current-icon">
+                <IconWorldWww size={16} stroke={1.5} />
+              </span>
+              <span
+                className={styles.hosts_title}
+                title={currentTitle}
+                data-testid="titlebar-current-title-text"
+              >
+                {currentTitle}
+              </span>
+            </>
+          ) : currentHosts ? (
             <>
               <span className={styles.hosts_icon} data-testid="titlebar-current-icon">
                 <ItemIcon type={currentHosts.type} isCollapsed={!currentHosts.folder_open} />
@@ -147,7 +173,7 @@ const TopBar = (props: IProps) => {
             </>
           )}
 
-          {isReadOnly(currentHosts) ? (
+          {!resolverMode && isReadOnly(currentHosts) ? (
             <Badge
               variant="light"
               color="gray"
@@ -175,20 +201,22 @@ const TopBar = (props: IProps) => {
             />
           </Flex>
         ) : null}
-        <ActionIcon
-          aria-label="Toggle right panel"
-          onClick={() => {
-            agent.broadcast(events.toggle_right_panel, !showRightPanel)
-          }}
-          variant="subtle"
-          color="gray"
-        >
-          {showRightPanel ? (
-            <IconLayoutSidebarRightCollapse size={iconSize} stroke={iconStroke} />
-          ) : (
-            <IconLayoutSidebarRightExpand size={iconSize} stroke={iconStroke} />
-          )}
-        </ActionIcon>
+        {!resolverMode ? (
+          <ActionIcon
+            aria-label="Toggle right panel"
+            onClick={() => {
+              agent.broadcast(events.toggle_right_panel, !showRightPanel)
+            }}
+            variant="subtle"
+            color="gray"
+          >
+            {showRightPanel ? (
+              <IconLayoutSidebarRightCollapse size={iconSize} stroke={iconStroke} />
+            ) : (
+              <IconLayoutSidebarRightExpand size={iconSize} stroke={iconStroke} />
+            )}
+          </ActionIcon>
+        ) : null}
 
         {showWindowControls ? (
           <>

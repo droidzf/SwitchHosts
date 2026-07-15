@@ -136,6 +136,71 @@ pub fn write_privileged(target: &Path, content: &str) -> Result<(), HostsApplyEr
     write_with_elevation(target, content)
 }
 
+/// Create or update one validated `/etc/resolver/<name>` file. The
+/// privileged helper is preferred for signed macOS builds; development
+/// builds and unavailable helpers fall back to the native admin prompt.
+pub fn write_resolver_privileged(name: &str, content: &str) -> Result<(), HostsApplyError> {
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(result) =
+            try_resolver_helper(|| super::helper_client::write_resolver(name, content.as_bytes()))
+        {
+            return result;
+        }
+
+        let tmp_path = stage_temp_file(content)?;
+        let target = Path::new(crate::helper_proto::RESOLVER_DIR).join(name);
+        let result = elevate_resolver_write(&tmp_path, &target);
+        let _ = std::fs::remove_file(&tmp_path);
+        result
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (name, content);
+        Err(HostsApplyError::NoAccess {
+            message: "system resolver management is only supported on macOS".into(),
+        })
+    }
+}
+
+pub fn delete_resolver_privileged(name: &str) -> Result<(), HostsApplyError> {
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(result) = try_resolver_helper(|| super::helper_client::delete_resolver(name)) {
+            return result;
+        }
+        let target = Path::new(crate::helper_proto::RESOLVER_DIR).join(name);
+        elevate_resolver_delete(&target)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = name;
+        Err(HostsApplyError::NoAccess {
+            message: "system resolver management is only supported on macOS".into(),
+        })
+    }
+}
+
+pub fn rename_resolver_privileged(old_name: &str, new_name: &str) -> Result<(), HostsApplyError> {
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(result) =
+            try_resolver_helper(|| super::helper_client::rename_resolver(old_name, new_name))
+        {
+            return result;
+        }
+        let dir = Path::new(crate::helper_proto::RESOLVER_DIR);
+        elevate_resolver_rename(&dir.join(old_name), &dir.join(new_name))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (old_name, new_name);
+        Err(HostsApplyError::NoAccess {
+            message: "system resolver management is only supported on macOS".into(),
+        })
+    }
+}
+
 /// Set once we lazily attempt helper registration from the apply path.
 /// A declined / failed attempt must NOT re-prompt on every subsequent
 /// apply (a background remote-refresh applies on its own), so we try the
@@ -166,6 +231,53 @@ fn try_helper(content: &str, status: HelperStatus) -> Option<Result<(), HostsApp
             // Lazy install / repair — the one-time auth prompt. Attempt
             // at most once per session so a declined prompt doesn't recur
             // on every apply; fall back to AEWP thereafter.
+            if HELPER_REGISTER_ATTEMPTED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                return None;
+            }
+            match super::helper_admin::register() {
+                Ok(HelperStatus::InstalledCurrent) => attempt("post-register"),
+                Ok(other) => {
+                    log::info!("helper not usable after register ({other:?}); falling back");
+                    None
+                }
+                Err(e) => {
+                    log::warn!("helper register failed ({e}); falling back to elevation");
+                    None
+                }
+            }
+        }
+        HelperStatus::RequiresApproval
+        | HelperStatus::NotSupported
+        | HelperStatus::InstalledUnreachable => None,
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn try_resolver_helper(
+    operation: impl Fn() -> Result<(), String>,
+) -> Option<Result<(), HostsApplyError>> {
+    let is_signed = super::helper_admin::is_signable_build();
+    if !is_signed {
+        return None;
+    }
+    let status = super::helper_admin::status();
+    if choose_elevation_strategy(Platform::Macos, true, status) != ElevationStrategy::Helper {
+        return None;
+    }
+
+    let attempt = |label: &str| match operation() {
+        Ok(()) => Some(Ok(())),
+        Err(e) => {
+            log::warn!(
+                "privileged helper resolver operation failed ({label}): {e}; falling back to elevation"
+            );
+            None
+        }
+    };
+
+    match status {
+        HelperStatus::InstalledCurrent => attempt("installed"),
+        HelperStatus::NotInstalled | HelperStatus::InstalledOutdated => {
             if HELPER_REGISTER_ATTEMPTED.swap(true, std::sync::atomic::Ordering::Relaxed) {
                 return None;
             }
@@ -431,6 +543,100 @@ fn execute_privileged_copy(
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
+fn execute_privileged_tool(
+    auth_ref: security_ffi::AuthorizationRef,
+    tool: &'static [u8],
+    args: &[std::ffi::CString],
+) -> Result<(), MacElevateError> {
+    let mut argv: Vec<*const u8> = args.iter().map(|arg| arg.as_ptr() as *const u8).collect();
+    argv.push(std::ptr::null());
+    let exit = unsafe { run_privileged(auth_ref, tool.as_ptr(), argv.as_ptr()) }?;
+    if exit == 0 {
+        Ok(())
+    } else {
+        let tool_name = std::ffi::CStr::from_bytes_with_nul(tool)
+            .map(|s| s.to_string_lossy())
+            .unwrap_or_else(|_| "privileged tool".into());
+        Err(HostsApplyError::Io {
+            message: format!("{tool_name} exited with status {exit}"),
+        }
+        .into())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn with_cached_authorization(
+    operation: impl Fn(security_ffi::AuthorizationRef) -> Result<(), MacElevateError>,
+) -> Result<(), HostsApplyError> {
+    let _lock = ELEVATE_LOCK.lock().expect("elevate lock poisoned");
+    let auth_ref = get_or_create_auth()?;
+    match operation(auth_ref) {
+        Ok(()) => Ok(()),
+        Err(MacElevateError::AuthExec(status, msg)) if is_auth_stale(status) => {
+            log::info!("{msg} — re-prompting");
+            invalidate_cached_auth();
+            let auth_ref = get_or_create_auth()?;
+            operation(auth_ref).map_err(mac_elevate_to_hosts_error)
+        }
+        Err(e) => Err(mac_elevate_to_hosts_error(e)),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn elevate_resolver_write(src: &Path, dst: &Path) -> Result<(), HostsApplyError> {
+    let dir = std::ffi::CString::new(crate::helper_proto::RESOLVER_DIR).expect("static path");
+    with_cached_authorization(|auth_ref| {
+        execute_privileged_tool(
+            auth_ref,
+            b"/bin/mkdir\0",
+            &[std::ffi::CString::new("-p").unwrap(), dir.clone()],
+        )?;
+        execute_privileged_copy(auth_ref, src, dst)
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn elevate_resolver_delete(target: &Path) -> Result<(), HostsApplyError> {
+    let target = std::ffi::CString::new(target.to_string_lossy().as_bytes()).map_err(|e| {
+        HostsApplyError::Io {
+            message: format!("CString from resolver path: {e}"),
+        }
+    })?;
+    with_cached_authorization(|auth_ref| {
+        execute_privileged_tool(
+            auth_ref,
+            b"/bin/rm\0",
+            &[std::ffi::CString::new("-f").unwrap(), target.clone()],
+        )
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn elevate_resolver_rename(old_path: &Path, new_path: &Path) -> Result<(), HostsApplyError> {
+    let old_path = std::ffi::CString::new(old_path.to_string_lossy().as_bytes()).map_err(|e| {
+        HostsApplyError::Io {
+            message: format!("CString from old resolver path: {e}"),
+        }
+    })?;
+    let new_path = std::ffi::CString::new(new_path.to_string_lossy().as_bytes()).map_err(|e| {
+        HostsApplyError::Io {
+            message: format!("CString from new resolver path: {e}"),
+        }
+    })?;
+    with_cached_authorization(|auth_ref| {
+        execute_privileged_tool(
+            auth_ref,
+            b"/bin/mv\0",
+            &[
+                std::ffi::CString::new("-n").unwrap(),
+                old_path.clone(),
+                new_path.clone(),
+            ],
+        )
+    })
+}
+
 /// Run a tool via `AuthorizationExecuteWithPrivileges`, wait for the
 /// child to finish, and return its exit status.
 ///
@@ -488,24 +694,7 @@ unsafe fn run_privileged(
 
 #[cfg(target_os = "macos")]
 fn elevate_copy(src: &Path, dst: &Path) -> Result<(), HostsApplyError> {
-    // Serialise all elevation attempts so that no thread can free a
-    // cached AuthorizationRef while another thread is still using it.
-    let _lock = ELEVATE_LOCK.lock().expect("elevate lock poisoned");
-
-    let auth_ref = get_or_create_auth()?;
-
-    match execute_privileged_copy(auth_ref, src, dst) {
-        Ok(()) => Ok(()),
-        Err(MacElevateError::AuthExec(status, msg)) if is_auth_stale(status) => {
-            // Cached authorization was invalidated (timeout, revocation).
-            // Clear it and retry once — the retry will re-prompt the user.
-            log::info!("{msg} — re-prompting");
-            invalidate_cached_auth();
-            let auth_ref = get_or_create_auth()?;
-            execute_privileged_copy(auth_ref, src, dst).map_err(mac_elevate_to_hosts_error)
-        }
-        Err(e) => Err(mac_elevate_to_hosts_error(e)),
-    }
+    with_cached_authorization(|auth_ref| execute_privileged_copy(auth_ref, src, dst))
 }
 
 #[cfg(target_os = "macos")]

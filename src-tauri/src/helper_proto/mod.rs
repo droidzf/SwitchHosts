@@ -39,7 +39,7 @@ pub const TEAM_ID: &str = "J5J6USUX2F";
 /// Protocol version. Bump on any breaking change to the message shape.
 /// The app compares the running daemon's reported version against this
 /// to decide whether the installed helper is current (`version` op).
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 
 /// Maximum accepted hosts payload. A real `/etc/hosts` is tens of KB at
 /// most; this cap sits far above any legitimate file yet well below
@@ -61,11 +61,16 @@ pub const MAX_PAYLOAD_BYTES: usize = 5 * 1024 * 1024;
 
 pub const KEY_OP: &CStr = c"op";
 pub const KEY_CONTENT: &CStr = c"content";
+pub const KEY_NAME: &CStr = c"name";
+pub const KEY_NEW_NAME: &CStr = c"new_name";
 pub const KEY_STATUS: &CStr = c"status";
 pub const KEY_MESSAGE: &CStr = c"message";
 pub const KEY_PROTOCOL_VERSION: &CStr = c"protocol_version";
 
 pub const OP_WRITE: &CStr = c"write_hosts";
+pub const OP_WRITE_RESOLVER: &CStr = c"write_resolver";
+pub const OP_DELETE_RESOLVER: &CStr = c"delete_resolver";
+pub const OP_RENAME_RESOLVER: &CStr = c"rename_resolver";
 pub const OP_VERSION: &CStr = c"version";
 pub const OP_PING: &CStr = c"ping";
 
@@ -115,6 +120,27 @@ pub enum ProtoError {
     ContainsNul,
     #[error("payload is not valid UTF-8")]
     NotUtf8,
+    #[error("invalid resolver name")]
+    InvalidResolverName,
+}
+
+/// Accept a single `/etc/resolver` child name, never a path. Resolver
+/// filenames conventionally use DNS suffixes, with `_` allowed for
+/// private/internal naming schemes already found in the wild.
+pub fn validate_resolver_name(name: &str) -> Result<(), ProtoError> {
+    if name.is_empty()
+        || name.len() > 253
+        || name == "."
+        || name == ".."
+        || name.starts_with('.')
+        || name.ends_with('.')
+        || !name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
+    {
+        return Err(ProtoError::InvalidResolverName);
+    }
+    Ok(())
 }
 
 /// Validate a hosts payload before any privileged write. The daemon is
@@ -150,6 +176,9 @@ pub fn validate_payload(bytes: &[u8]) -> Result<(), ProtoError> {
 #[cfg(unix)]
 pub const SYSTEM_HOSTS_PATH: &str = "/etc/hosts";
 
+#[cfg(unix)]
+pub const RESOLVER_DIR: &str = "/etc/resolver";
+
 /// Monotonic counter that makes each privileged write's temp file name
 /// unique, so two concurrent writes within the daemon never share (and
 /// clobber) one temp file.
@@ -168,6 +197,52 @@ pub fn write_system_hosts(content: &[u8]) -> std::io::Result<()> {
         content,
         Some((0, 0)),
     )
+}
+
+#[cfg(unix)]
+fn resolver_path(name: &str) -> std::io::Result<std::path::PathBuf> {
+    validate_resolver_name(name)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e.to_string()))?;
+    Ok(std::path::Path::new(RESOLVER_DIR).join(name))
+}
+
+/// Create or atomically replace one resolver file as `root:wheel` mode
+/// `0644`. The parent directory is created as `0755` when absent.
+#[cfg(unix)]
+pub fn write_resolver(name: &str, content: &[u8]) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    validate_payload(content)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
+    let target = resolver_path(name)?;
+    let dir = std::path::Path::new(RESOLVER_DIR);
+    std::fs::create_dir_all(dir)?;
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o755))?;
+    std::os::unix::fs::chown(dir, Some(0), Some(0))?;
+    write_atomic(&target, content, Some((0, 0)))
+}
+
+#[cfg(unix)]
+pub fn delete_resolver(name: &str) -> std::io::Result<()> {
+    let path = resolver_path(name)?;
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+#[cfg(unix)]
+pub fn rename_resolver(old_name: &str, new_name: &str) -> std::io::Result<()> {
+    let old_path = resolver_path(old_name)?;
+    let new_path = resolver_path(new_name)?;
+    if std::fs::symlink_metadata(&new_path).is_ok() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            format!("resolver already exists: {new_name}"),
+        ));
+    }
+    std::fs::rename(old_path, new_path)
 }
 
 /// Atomic write core, factored out so it can be unit-tested
@@ -262,6 +337,18 @@ mod tests {
             validate_payload(&[0x31, 0xFF, 0x32]),
             Err(ProtoError::NotUtf8)
         );
+    }
+
+    #[test]
+    fn resolver_name_validation_rejects_paths() {
+        for name in ["", ".", "..", ".hidden", "test.", "../hosts", "a/b", "a b"] {
+            assert_eq!(
+                validate_resolver_name(name),
+                Err(ProtoError::InvalidResolverName),
+                "{name:?} should be rejected"
+            );
+        }
+        assert_eq!(validate_resolver_name("internal.example"), Ok(()));
     }
 
     #[test]

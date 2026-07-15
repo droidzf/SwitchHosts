@@ -7,6 +7,7 @@ import events from '@common/events'
 import { ScrollArea } from '@mantine/core'
 import Trashcan from '@renderer/components/LeftPanel/Trashcan'
 import List from '@renderer/components/List'
+import ResolverList from '@renderer/components/ResolverList'
 import { agent } from '@renderer/core/agent'
 import { PopupMenu } from '@renderer/core/PopupMenu'
 import useI18n from '@renderer/models/useI18n'
@@ -24,9 +25,9 @@ const Index = (_props: Props) => {
 
   const menu = new PopupMenu([
     {
-      label: lang.hosts_add,
+      label: view === 'resolver' ? lang.resolver_add : lang.hosts_add,
       click() {
-        agent.broadcast(events.add_new)
+        agent.broadcast(view === 'resolver' ? events.resolver_add : events.add_new)
       },
     },
   ])
@@ -35,11 +36,11 @@ const Index = (_props: Props) => {
     <div
       className={styles.root}
       onContextMenu={() => {
-        if (view === 'list') menu.show()
+        if (view !== 'trashcan') menu.show()
       }}
     >
       <ScrollArea className={styles.content} scrollbars="y" type="hover">
-        {view === 'list' ? <List /> : <Trashcan />}
+        {view === 'list' ? <List /> : view === 'resolver' ? <ResolverList /> : <Trashcan />}
       </ScrollArea>
       <div className={styles.status_bar} />
     </div>

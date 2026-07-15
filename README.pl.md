@@ -35,7 +35,19 @@ SwitchHosts to aplikacja do zarządzania plikiem hosts, zbudowana na bazie [Taur
 - Ręczne, zaplanowane lub startowe odświeżanie zdalnych hosts
 - Import i eksport danych hosts, w tym import kopii zapasowej z URL
 - Przenoszenie wpisów do kosza oraz późniejsze przywracanie lub trwałe usuwanie
+- Zarządzanie rozdzielonym DNS macOS Resolver z trwałymi przełącznikami włącz/wyłącz
 - Preferencje dla trybu zapisu, proxy, sprawdzania aktualizacji, uruchamiania przy logowaniu, polecenia po zastosowaniu i lokalnego HTTP API
+
+## Rozwiązywanie domen w macOS
+
+W macOS menu **Rozwiązywanie domen** zarządza plikami w `/etc/resolver`:
+
+- Każdy element listy odpowiada `/etc/resolver/<nazwa>` i można go dodawać, zmieniać nazwę, edytować lub usuwać.
+- Wyłączenie elementu usuwa jego plik z `/etc/resolver`, ale zachowuje nazwę i zawartość w SwitchHosts. Ponowne włączenie odtwarza plik z zapisanej treści.
+- Rekordy Resolver są zapisywane w `~/.SwitchHosts/internal/resolvers.json` (lub w wybranym katalogu danych SwitchHosts).
+- Istniejące pliki utworzone poza SwitchHosts są automatycznie importowane podczas ładowania listy.
+- Nowy Resolver otrzymuje komentowany szablon obejmujący wszystkie dyrektywy macOS `resolver(5)`: `nameserver`, `port`, `domain`, `search`, `search_order`, `sortlist`, `timeout` i `options` (`debug`, `timeout:n`, `ndots:n`).
+- Zmiany systemowe wymagają autoryzacji administratora macOS. Funkcja nie jest dostępna w Windows ani Linux.
 
 ## Instalacja
 
@@ -58,9 +70,10 @@ SwitchHosts przechowuje dane w `~/.SwitchHosts` (lub folder `.SwitchHosts` w śc
 - `~/.SwitchHosts/entries/` przechowuje zawartość lokalnych i zdalnych hosts
 - `~/.SwitchHosts/trashcan.json` przechowuje wpisy kosza
 - `~/.SwitchHosts/internal/config.json` przechowuje preferencje
+- `~/.SwitchHosts/internal/resolvers.json` przechowuje rekordy Resolver macOS i ich stan włączenia
 - `~/.SwitchHosts/internal/histories/` przechowuje historię systemowego pliku hosts i uruchomień poleceń
 
-Aby wykonać pełną ręczną kopię zapasową, skopiuj cały folder `~/.SwitchHosts`. Eksport w aplikacji tworzy JSON z kopią zapasową danych hosts; nie zawiera preferencji ani historii.
+Aby wykonać pełną ręczną kopię zapasową, skopiuj cały folder `~/.SwitchHosts`. Eksport w aplikacji tworzy JSON z kopią zapasową danych hosts; nie zawiera preferencji, historii ani rekordów Resolver.
 
 ## Tworzenie i budowanie
 
