@@ -181,6 +181,10 @@
   }
 
   const searchParams = new URLSearchParams(window.location.search)
+  const platformOverride = searchParams.get('e2ePlatform')
+  if (['darwin', 'win32', 'linux'].includes(platformOverride)) {
+    window.__SWITCHHOSTS_PLATFORM__ = platformOverride
+  }
 
   if (searchParams.get('e2eWriteMode') === 'null') {
     state.configs.write_mode = null

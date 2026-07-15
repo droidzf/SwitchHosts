@@ -120,6 +120,15 @@ function resolveCommandName(action: string): string {
 // ---- tauri agent factory ---------------------------------------------------
 
 function detectPlatform(): string {
+  const testOverride =
+    typeof window === 'undefined'
+      ? undefined
+      : (window as Window & { __SWITCHHOSTS_PLATFORM__?: string })
+          .__SWITCHHOSTS_PLATFORM__
+  if (testOverride === 'darwin' || testOverride === 'win32' || testOverride === 'linux') {
+    return testOverride
+  }
+
   // Dev override: VITE_PLATFORM=darwin|win32|linux at startup forces the
   // renderer to render the platform-specific layout regardless of the real OS.
   // Useful for previewing Windows / Linux UI while developing on macOS.

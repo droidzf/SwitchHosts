@@ -6,6 +6,7 @@
 import events from '@common/events'
 import HostsEditor from '@renderer/components/Editor/HostsEditor'
 import ResolverEditor from '@renderer/components/Editor/ResolverEditor'
+import { agent } from '@renderer/core/agent'
 import useOnBroadcast from '@renderer/core/useOnBroadcast'
 import { leftPanelViewAtom } from '@renderer/stores/ui'
 import { useAtomValue } from 'jotai'
@@ -22,7 +23,7 @@ const MainPanel = () => {
 
   return (
     <div className={styles.root}>
-      {view === 'resolver' ? <ResolverEditor /> : <HostsEditor />}
+      {agent.platform === 'darwin' && view === 'resolver' ? <ResolverEditor /> : <HostsEditor />}
     </div>
   )
 }

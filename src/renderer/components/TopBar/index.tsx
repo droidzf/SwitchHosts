@@ -43,7 +43,7 @@ const TopBar = (props: IProps) => {
   const { isHostsInTrashcan, currentHosts, isReadOnly } = useHostsData()
   const view = useAtomValue(leftPanelViewAtom)
   const currentResolverName = useAtomValue(currentResolverNameAtom)
-  const resolverMode = view === 'resolver'
+  const resolverMode = agent.platform === 'darwin' && view === 'resolver'
   const [isOn, setIsOn] = useState(!!currentHosts?.on)
   const iconSize = 20
   const iconStroke = 1.5

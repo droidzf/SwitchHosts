@@ -22,12 +22,13 @@ interface Props {
 const Index = (_props: Props) => {
   const { lang } = useI18n()
   const view = useAtomValue(leftPanelViewAtom)
+  const resolverMode = agent.platform === 'darwin' && view === 'resolver'
 
   const menu = new PopupMenu([
     {
-      label: view === 'resolver' ? lang.resolver_add : lang.hosts_add,
+      label: resolverMode ? lang.resolver_add : lang.hosts_add,
       click() {
-        agent.broadcast(view === 'resolver' ? events.resolver_add : events.add_new)
+        agent.broadcast(resolverMode ? events.resolver_add : events.add_new)
       },
     },
   ])
@@ -40,7 +41,7 @@ const Index = (_props: Props) => {
       }}
     >
       <ScrollArea className={styles.content} scrollbars="y" type="hover">
-        {view === 'list' ? <List /> : view === 'resolver' ? <ResolverList /> : <Trashcan />}
+        {view === 'trashcan' ? <Trashcan /> : resolverMode ? <ResolverList /> : <List />}
       </ScrollArea>
       <div className={styles.status_bar} />
     </div>

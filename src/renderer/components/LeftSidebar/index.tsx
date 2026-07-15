@@ -50,17 +50,19 @@ const LeftSidebar = (props: IProps) => {
             <IconList size={18} stroke={1.5} />
           </ActionIcon>
         </Tooltip>
-        <Tooltip label={lang.domain_resolution} position="right">
-          <ActionIcon
-            variant={view === 'resolver' ? 'light' : 'subtle'}
-            color={view === 'resolver' ? undefined : 'gray'}
-            size={28}
-            onClick={() => handleClick('resolver')}
-            aria-label={lang.domain_resolution}
-          >
-            <IconWorldWww size={18} stroke={1.5} />
-          </ActionIcon>
-        </Tooltip>
+        {agent.platform === 'darwin' ? (
+          <Tooltip label={lang.domain_resolution} position="right">
+            <ActionIcon
+              variant={view === 'resolver' ? 'light' : 'subtle'}
+              color={view === 'resolver' ? undefined : 'gray'}
+              size={28}
+              onClick={() => handleClick('resolver')}
+              aria-label={lang.domain_resolution}
+            >
+              <IconWorldWww size={18} stroke={1.5} />
+            </ActionIcon>
+          </Tooltip>
+        ) : null}
         <Tooltip label={lang.trashcan} position="right">
           <Indicator
             label={hostsData.trashcan.length}

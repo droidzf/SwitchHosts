@@ -1,6 +1,7 @@
-import { expect, getMockState, selectAllModifier, test } from './support/test'
+import { expect, getMockState, gotoApp, selectAllModifier, test } from './support/test'
 
 test('manages macOS resolver files from the domain resolution view', async ({ page }) => {
+  await gotoApp(page, '/?e2ePlatform=darwin')
   await page.getByLabel('Domain Resolution').click()
 
   await expect(page.getByText('corp.example', { exact: true }).last()).toBeVisible()
@@ -92,4 +93,8 @@ test('manages macOS resolver files from the domain resolution view', async ({ pa
   await renamedRow.getByLabel('Delete').click()
   await page.getByRole('dialog').getByRole('button', { name: 'Delete', exact: true }).click()
   await expect(page.getByText('private.example', { exact: true })).toHaveCount(0)
+})
+
+test('hides domain resolution outside macOS', async ({ page }) => {
+  await expect(page.getByLabel('Domain Resolution')).toHaveCount(0)
 })
