@@ -74,12 +74,12 @@ env:
 # different branches still get different groups so dry-runs from
 # different branches can run in parallel.
 #
-# cancel-in-progress=false because a release build takes ~10 min per
-# platform with signing+notarization; a mid-flight cancel would leave
-# a half-populated draft requiring manual cleanup.
+# A newer run for the same tag supersedes an older one. The draft release is
+# reusable and every upload uses clobber/rename safeguards, so cancelling the
+# stale run avoids wasting runners after a release-workflow fix.
 concurrency:
   group: release-${{ github.event.inputs.tag || github.ref_name }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: write
