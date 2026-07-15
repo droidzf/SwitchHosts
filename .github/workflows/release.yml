@@ -312,6 +312,9 @@ jobs:
             rust_targets: aarch64-pc-windows-msvc
 
     runs-on: ${{ matrix.platform }}
+    env:
+      MACOS_SIGNING_ENABLED: ${{ secrets.APPLE_SIGNING_IDENTITY != '' && secrets.APPLE_CERTIFICATE != '' }}
+      MACOS_NOTARIZATION_ENABLED: ${{ secrets.APPLE_SIGNING_IDENTITY != '' && secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
 
     steps:
       - name: Checkout
@@ -350,23 +353,14 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Validate macOS signing secrets
+      - name: Report macOS signing mode
         if: runner.os == 'macOS'
         shell: bash
-        env:
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          if [ -z "$APPLE_SIGNING_IDENTITY" ]; then
-            echo "::error::Repository secret APPLE_SIGNING_IDENTITY is not set"
-            exit 1
-          fi
-          # APPLE_TEAM_ID moved from a hardcoded literal to a secret.
-          # An empty secret would silently break notarization (app and
-          # DMG), so fail loudly here the same way we do for the identity.
-          if [ -z "$APPLE_TEAM_ID" ]; then
-            echo "::error::Repository secret APPLE_TEAM_ID is not set"
-            exit 1
+          if [ "$MACOS_SIGNING_ENABLED" = "true" ]; then
+            echo "Apple signing certificate detected; building a signed application."
+          else
+            echo "::warning::Apple signing secrets are not configured; building an unsigned macOS installer."
           fi
 
       - name: Build and release (Tauri)
@@ -419,7 +413,7 @@ jobs:
       # "Rename release assets" step renames in place via API PATCH (no
       # byte change), so the stapled bytes survive the rename.
       - name: Notarize and staple DMG (macOS)
-        if: runner.os == 'macOS' && needs.prep.outputs.tag != ''
+        if: runner.os == 'macOS' && needs.prep.outputs.tag != '' && env.MACOS_NOTARIZATION_ENABLED == 'true'
         shell: bash
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -507,6 +501,8 @@ jobs:
     needs: [release, prep, create-release]
     if: ${{ needs.release.result == 'success' }}
     runs-on: ubuntu-latest
+    env:
+      UPDATER_SIGNING_ENABLED: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
     # Re-export create-release's release_id so updater-manifest can keep
     # reading `needs.finalize_release.outputs.release_id` unchanged.
     outputs:
@@ -528,7 +524,7 @@ jobs:
 
       # Sign updater archives once, after every matrix build has uploaded its assets.
       - name: Sign updater archives
-        if: needs.prep.outputs.tag != ''
+        if: needs.prep.outputs.tag != '' && env.UPDATER_SIGNING_ENABLED == 'true'
         shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -785,7 +781,7 @@ jobs:
       # deb/rpm installs update to their matching package instead of
       # being offered an AppImage archive.
       - name: Sign Linux package updater assets
-        if: needs.prep.outputs.tag != ''
+        if: needs.prep.outputs.tag != '' && env.UPDATER_SIGNING_ENABLED == 'true'
         shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -892,6 +888,8 @@ jobs:
     needs: [finalize_release, prep]
     if: ${{ needs.finalize_release.result == 'success' }}
     runs-on: ubuntu-latest
+    env:
+      UPDATER_SIGNING_ENABLED: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -899,7 +897,7 @@ jobs:
           ref: ${{ needs.prep.outputs.tag || github.ref }}
 
       - name: Generate latest.json
-        if: needs.prep.outputs.tag != ''
+        if: needs.prep.outputs.tag != '' && env.UPDATER_SIGNING_ENABLED == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
