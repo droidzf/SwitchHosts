@@ -315,6 +315,7 @@ jobs:
     env:
       MACOS_SIGNING_ENABLED: ${{ secrets.APPLE_SIGNING_IDENTITY != '' && secrets.APPLE_CERTIFICATE != '' }}
       MACOS_NOTARIZATION_ENABLED: ${{ secrets.APPLE_SIGNING_IDENTITY != '' && secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
+      UPDATER_SIGNING_ENABLED: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
 
     steps:
       - name: Checkout
@@ -464,7 +465,7 @@ jobs:
       # tauri-action only creates .app.tar.gz for macOS. Windows and
       # Linux updater archives must be built manually.
       - name: Create updater archives (Windows)
-        if: runner.os == 'Windows' && needs.prep.outputs.tag != ''
+        if: runner.os == 'Windows' && needs.prep.outputs.tag != '' && env.UPDATER_SIGNING_ENABLED == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -481,7 +482,7 @@ jobs:
           done
 
       - name: Create updater archives (Linux)
-        if: runner.os == 'Linux' && needs.prep.outputs.tag != ''
+        if: runner.os == 'Linux' && needs.prep.outputs.tag != '' && env.UPDATER_SIGNING_ENABLED == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
